@@ -53,9 +53,3 @@ CSV to DF
 val file1 = spark.read.option("header", true).option("delimiter", ",").csv("hdfs:///user/sravankumar/products_data.csv")
 val file2 = spark.read.option("header", true).option("delimiter", ",").csv("hdfs:///user/sravankumar/sales_info.csv")
 val join_df = file1.join(file2,"Product_id")
-
-
-
----spark-------
-
-
