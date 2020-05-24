@@ -1,0 +1,860 @@
+create RDD from below data path:
+/public/retail_db/orders/part-00000
+
+******
+val orders =sc.textFile("/user/sravankumar/orders/part-00000")
+
+
+val first_100 = orders.take(100)
+
+2013-07-25 00:00:00.0 - > 20130725
+
+val orderDates = orders.map((str: String) => {str.split(",")(1).substring(0,10).replace("-","").toInt})
+
+convert to key value pair
+**********************************
+
+val ordersPairedRDD = orders.map(order => {
+      val o = order.split(",")
+      (o(0).toInt,o(1).substring(0,10).replace("-","").toInt)
+      })
+
+
+*******************************************************************************
+
+val products = sc.textFile("/user/sravankumar/products_data.csv")
+val sales = sc.textFile("/user/sravankumar/sales_info.csv")
+
+
+using Filter
+**************
+
+val country = products.filter(country => country.split(",")(3) == "INDIA")
+
+creating paired RDD
+**********************
+
+val productsmap = products.map(product => (product.split(",")(0).toInt,(product.split(",")(1),product.split(",")(3))))
+
+val salesmap = sales.map(sales => {
+      val sale = sales.split(",")
+      (sale(0).toInt,(sale(1),sale(2).toInt,sale(3).toFloat,sale(4).toInt,sale(5).toInt))
+      })
+	 
+
+join two RDD pairs
+***********************
+
+val prodjoin = productsmap.join(salesmap)
+
+usage of countByKey
+**************
+
+prodjoin.countByKey.foreach(println)
+
+compute Total Sales
+********************
+
+val totalsaleid = sales.map(sale => (sale.split(",")(2)))
+val totalsales = totalsaleid.reduce((total,sales) => total + sales)
+
+Find out total sale_id'sfor the product_id using GroupbyKey
+********************************************
+
+val salesidmap = sales.map(salesid => {
+      val saleid = salesid.split(",")
+      (saleid(2).toInt,saleid(3).toFloat)
+      })
+	 
+	 
+usage of GroupByKey
+***********************
+
+val totalsaleid = salesidmap.groupByKey
+
+convert to list from compact buffer
+*************************************
+
+val totalsales = totalsaleid.map(sale => (sale._1,sale._2.toList.sum))
+
+sorting by totalsales for sale _id
+*****************************************
+
+val sortsales = totalsaleid.flatMap(sale => {
+      sale._2.toList.sortBy(o => -o).map(k => (sale._1,k))
+      })
+
+
+using reduceByKey to find out Total Sales
+*********************************************8
+
+val totalsalesreducebykey = totalsales.reduceByKey((total , sales ) =>
+      total + sales)
+	 
+	
+finding Min sales
+********************
+
+val totalminsales = totalsalesreducebykey.reduceByKey((min,sales) =>
+      if (min > sales) sales else min)	
+	 
+	 
+using AggregateByKey
+**********************
+
+
+val aggregatekeysalesmax = salesidmap.aggregateByKey((0.0f,0.0f)) (
+      (sale,total) => (sale._1 + total,  if(total > sale._1) total else sale._1),
+      (sum,max) => (sum._1 + max._1, if(sum._2 > max._2) sum._2 else max._2)
+      )
+	 
+using SortByKey
+*****************
+
+
+
+val sortedkeysalespricemap = sales.map(salesid => ((salesid.split(",")(0).toInt,-salesid.split(",")(6).toInt),salesid))
+
+val sortbykeysaleprice = sortedkeysalespricemap.sortByKey()
+
+using takeOrdered
+***********************
+
+sales.takeOrdered(10)(Ordering[Float].reverse.on(sale => sale.split(",")(3).toFloat)).foreach(println)
+
+
+Ranking - Get top N products
+***********************************
+
+val products = sc.textFile("/public/retail_db/products/")
+
+val productsmap = products.filter(product =>
+      product.split(",")(4) != "").map(product => (product.split(",")(1).toInt,product))
+	 
+val productsmapgroupByCategory = productsmap.groupByKey
+
+val productsIterable = productsmapgroupByCategory.first._2
+
+Get all the products in descending order by Price
+*************************
+
+val productsSorted = productsIterable.toList.sortBy(product => -product.split(",")(4).toFloat)
+val mintopNPrices = topNPrices.min
+val topNPricedProducts = productsSorted.takeWhile(product => product.split(",")(4).toFloat >= mintopNPrices)
+
+def getTopNPricedProducts(productsIterable : Iterable[String],topN: Int) : Iterable[String] = {
+		val productPrices = productsIterable.map(p => p.split(",")(4).toFloat).toSet
+		val topNPrices = productPrices.toList.sortBy(p => -p).take(topN)
+		val productsSorted = productsIterable.toList.sortBy(product => -product.split(",")(4).toFloat)
+		val mintopNPrices = topNPrices.min
+		val topNPricedProducts = productsSorted.takeWhile(product => product.split(",")(4).toFloat >= mintopNPrices)
+		topNPricedProducts
+
+	}
+
+val top3PricedProductsperCategory = productsmapgroupByCategory.flatMap(rec => getTopNPricedProducts(rec._2,3))
+
+
+save as text file on top of RDD
+***********************************
+
+val orders = sc.textFile("/public/retail_db/orders/")
+
+val orderCountByStatus = orders.map(
+      rec => (rec.split(",")(3),1)).reduceByKey((total,element) => total + element)
+	 
+orderCountByStatus.map(rec => rec._1 + "\t" + rec._2).saveAsTextFile("order_count_by_status")
+
+sc.textFile("order_count_by_status").collect.foreach(println)
+
+Note : reduceByKey works on RDD whereas countByKey works on Map. Therefore, used reduceByKey in above code
+
+Note : use hadoop fs -rm -R to remove the directory from hdfs
+
+
+saving in other hdfs formats
+*****************************
+
+orderCountByStatus.saveAsTextFile("order_count_by_status_snappy",classOf[org.apache.hadoop.io.compress.SnappyCodec])
+
+sc.textFile("order_count_by_status_snappy").collect.foreach(println)
+
+writing data into different file formats
+*******************************************
+
+val ordersDF = sqlContext.read.json("/public/retail_db_json/orders")
+
+ordersDF.save("orders_parquet","parquet")
+
+sqlContext.load("orders_parquet","parquet").show
+
+orc format writing
+************************
+ordersDF.write.orc("orders_orc")
+
+use load to read the data -takes two parameters
+******************************************************
+sqlContext.load("orders_orc","orc").show
+sqlContext.read.orc("orders_orc").show
+
+
+Solution - lectures 62 - 65
+**********************************
+val orders = sc.textFile("/public/retail_db/orders")
+val orderitems = sc.textFile("/public/retail_db/order_items")
+val ordersFiltered = orders.filter(order => order.split(",")(3) == "COMPLETE"   order.split(",")(3) == "CLOSED")
+
+val ordersmap = ordersFiltered.map(order => (order.split(",")(0).toInt,order.split(",")(1)))
+val orderitemsmap =orderitems.map(oi => (oi.split(",")(1).toInt,(oi.split(",")(2).toInt,oi.split(",")(4).toFloat)))
+val ordersjoin = ordersmap.join(orderitemsmap)
+
+val ordersjoinmap=ordersjoin.map(rec => ((rec._2._1,rec._2._2._1),rec._2._2._2))
+val dailyRevenuePerProductId = ordersjoinmap.reduceByKey((revenue,order_item_subtotal) => revenue + order_item_subtotal)
+
+import scala.io.Source
+
+val productsRaw = Source.fromFile("/data/retail_db/products/part-00000").getLines.toList
+val products = sc.parallelize(productsRaw)
+
+val productsMap = products.map(product =>(product.split(",")(0).toInt,product.split(",")(2)))
+
+val dailyRevenuePerProductIdMap = dailyRevenuePerProductId.map(pid => (pid._1._2,(pid._1._1,pid._2)))
+
+val dailyRevenuePerProductIdJoin = dailyRevenuePerProductIdMap.join(productsMap)
+dailyRevenuePerProductIdJoin.take(10).foreach(println)
+
+val dailyRevenuePerProductSorted = dailyRevenuePerProductIdJoin.
+                                        map(rec =>((rec._2._1._1,-rec._2._1._2),(rec._2._1._1,rec._2._1._2,rec._2._2))).
+										sortByKey()
+
+val dailyRevenuePerProduct = dailyRevenuePerProductSorted.map(rec => rec._2_1 + "," + rec._2._2 + "," + rec._2._3 )
+dailyRevenuePerProduct.saveAsTextFile("daily_revenue_text_scala")
+
+***************
+creating Hive Table
+**************
+
+ create table orders (
+                                >   order_id int,
+                                >   order_date string,
+                                >   order_customer_id int,
+                                >   order_status string
+                                > ) row format delimited fields terminated by ','
+                                > stored as textfile;
+
+
+load data local inpath '/data/retail_db/orders/' into table orders;
+
+dfs -ls /apps/hive/warehouse/sravankumar_retail_db_txt.db/orders;
+
+
+create table orders_items (
+                                >   order_item_id int,
+                                >   order_item_order_id int,
+                                >   order_item_product_id int,
+								    order_item_quantity int,
+									order_item_subtotal float,
+									order_item_product_price float
+                                > ) row format delimited fields terminated by ','
+                                > stored as textfile;
+								
+								
+load data local inpath '/data/retail_db/order_items/' into table orders_items;
+
+val stockvalues = nyseDf.map(stc => (stc.split(",")(0),stc.split(",")(6).toInt))
+
+*********
+Problem -1
+
+
+val nysestocks2010 = sc.textFile("NYSE_2010.txt")
+
+val stocktricker = nysestocks2010.map(stc => (stc.split(",")(0),(stc.split(",")(1),stc.split(",")(2),stc.split(",")(3),
+                    stc.split(",")(4),stc.split(",")(5))))
+					
+
+val distinctstockticker = stocktricker.map(stcticker => stcticker._1).distinct
+
+
+val stocktrickerasc = distinctstockticker.sortBy(stc => stc)
+
+
+***********************
+Problem -2  save the final data in json where stocktricker and date are in ascending order
+
+val nysestocks2010 = sc.textFile("NYSE_2010.txt")
+
+val stockkeyvalue = nysestocks2010.map(rec => ((rec.split(",")(0),rec.split(",")(1).toInt),rec))
+
+val stockasc = stockkeyvalue.sortBy(o => o).take(15).foreach(println)
+
+val stockfinal = stockasc.map(rec => rec._2)
+
+val stcpartitioning = stockfinal.repartition(8)
+
+st_final = stcpartitioning.toDF
+
+st_final.write.json("stckdata_2010_json")
+
+*****************************************************
+
+
+
+val tuple1 = (1,"2013-07-25:00:00:00.0",11599,"COMPLETE")
+
+val statuscol = (tuple1._1,tuple1._2,tuple1._3,tuple._4.toLower)
+
+
+
+sc.parallelize(Seq("1,2013-07-25:00:00:00.0,11599,COMPLETE")).map( x => {var d = x.split(","); (d(3))}).toDF("order_status").select (lower(col("order_status"))).show
+
+
+*************8
+Problem 3
+
+val stcklist = sc.textFile("NYSE_2010.txt")
+val stcnames = sc.textFile("/public/nyse_all/nyse_stocks")
+
+
+val stcklistkeymap = stcklist.map( stc => {
+		val stock = stc.split(",")
+		(stock(0),(stock(1).toInt,stock(2).toFloat,stock(3).toFloat,stock(4).toFloat,stock(5).toFloat,stock(6).toInt)) \
+		})
+	 
+val stcnamesmap = stcnames.map(stc => {
+      val stcname = stc.split("\\|")
+      (stcname(0),stcname(1))
+      })
+	  
+val stockjoin =  stcklistkeymap.join(stcnamesmap)
+
+
+stockjoin.filter(stcname => stcname._2._2.contains("Natural Gas Services Group, Inc.")).take(15).foreach(println)
+
+
+******************8
+problem--4
+
+val stcklist = sc.textFile("NYSE_2010.txt")
+
+val stckkey = stcklist.map(stc => ((stc.split(",")(0),stc.split(",")(1).toInt,stc.split(",")(6).toInt),stc))
+
+
+val stctickerasc = stckkey.sortByKey()
+
+
+val stkunitsindescperstcdate = stctickerasc.map(stc => ((stc._1._1,stc._1._2,-stc._1._3),stc))
+
+val  sortunitsdesc = stkunitsindescperstcdate.sortBy(units => (units._1._3,-units._1._3))
+
+val finalstockdata = sortunitsdesc.map(rec => (rec._2._2))
+
+val stockdf = finalstockdata.toDF
+
+
+
+
+create table stock_data ( stockticker string,date_trade int,open_price float,high_price float,
+low_price float,closed_price float,units int) 
+ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe';
+--ROW FORMAT SERDE 'org.apache.hadoop.hive.contrib.serde2.JsonSerde' ;
+
+				  
+						  
+ADD JAR /path-to/hive-json-serde.jar;
+                                  
+								
+								
+load data inpath '/user/sravankumar/stock_json/' into table stock_data;
+
+
+
+stockdf.select("stockticer", "date").write.format("json").save("st_json")
+
+
+val stock_json = stockdf.select(
+    stockdf("_c0").as("Stock_ticker"),
+    stockdf("_c1").as("Date_trade"),
+    stockdf("_c2").as("Units"),
+    stockdf("_c3").as("High_price"),
+	stockdf("_c4").as("Open_price"),
+	stockdf("_c5").as("Low_price"),
+	stockdf("_c6").as("Close_price")
+    )
+
+
+
+
+***************
+creating Dataframes
+**************
+
+val ordersRDD = sc.textFile("/public/retail_db/orders")
+val ordersDF = ordersRDD.map(rec => {
+   (rec.split(",")(0).toInt,rec.split(",")(1),rec.split(",")(2).toInt,rec.split(",")(3))
+   }).toDF("order_id","order_date","order_customer_id","order_status")
+   
+ ordersDF.registerTempTable("orders")
+ 
+ *******
+ convert to RDD by reading the file from local path:
+ **************
+ 
+ sqlContext.sql("select order_status,count(1) from orders group by order_status").show()
+ 
+ sqlContext.sql("use sravankumar")
+ 
+ val productsRaw = scala.io.Source.fromFile("/data/retail_db/products/part-00000").getLines.toList
+ 
+ val productsRDD = sc.parallelize(productsRaw)
+ 
+ val productsDF = productsRDD.map( rec => {
+  (rec.split(",")(0),rec.split(",")(2))
+  }).toDF("product_id","product_name")
+  
+productsDF.registerTempTable("products")
+
+sqlContext.setConf("spark.sql.shuffle.partitions","2")
+val daily_revenue_per_product = sqlContext.sql("SELECT o.order_date,p.product_name,sum(oi.order_item_subtotal) daily_revenue_per_product " +
+"FROM orders o JOIN order_items oi " +
+"ON o.order_id = oi.order_item_order_id " +
+"JOIN products p ON p.product_id = oi.order_item_product_id " +
+"where o.order_status IN ('COMPLETE','CLOSED') " +
+"GROUP BY o.order_date,p.product_name " +
+"order by o.order_date,daily_revenue_per_product desc").show()
+
+******
+storing the data in hive tables in ORC
+
+
+sqlContext.sql("create Database sravankumar_revenue")
+sqlContext.sql("create table sravankumar_revenue.daily_revenue " +
+"(order_date String, product_name String,daily_revenue_per_product float) " +
+"STORED as orc "
+
+daily_revenue_per_product.insertInto("sravankumar_revenue.daily_revenue")
+
+*************
+writing to file formats JSON or PARQUET or AVRO or ORC
+******
+
+daily_revenue_per_product.save("/user/sravankumar/<FILENAME>","JSON")
+
+or
+
+daily_revenue_per_product.write.json("/user/sravankumar/<FILENAME>")
+
+
+**********
+converting to RDD from DataFrame
+
+
+daily_revenue_per_product.RDD
+
+******
+Apply filters on DF
+
+daily_revenue_per_product.filter(daily_revenue_per_product("order_date") === "somevalue").show
+
+
+
+
+**********8
+
+val moviesjsondf = sqlContext.read.json("movies.json")
+moviesjsondf: org.apache.spark.sql.DataFrame = [actors: array<struct<id:string,role:string>>, country: string, director: struct<first_name:string,id:string,last_name:string,year_of_birth:string>, genre: string, id: string, summary: string, title: string, year: bigint]
+
+val artistsjsondf = sqlContext.read.json("artisits.json")
+
+val moviesdata = moviesjsondf.registerTempTable("movies_data")
+
+val titleandyeardata = moviesjsondf.select("year","title").groupBy("year")
+
+val titleandyeardata = sqlContext.sql("select * from movies_data  limit 5").show
+
+
+
+
+sqlContext.sql("select t1.id,t1.title,t2.id,t2.year  " +
+"from movies_data t1 JOIN  movies_data t2 " +
+"ON t1.id = t2.id ").show()
+
+
+ 
+sqlContext.sql(("select t1.title,t2.year (( "select id,title from movies_data") t1 " +
+"JOIN ("select id,year from mmovies_data group by id,year") t2 " +
+"ON t1.id = t2.id) t3 " +
+)).show()
+
+
+*********************
+
+
+launch spark2
+
+spark2-shell \
+--master yarn \
+--conf spark.ui.port = 0 \
+
+
+
+check for spark by typing on the shell
+
+import org.apache.spark.sql.sparkSession
+
+val spark = SparkSession.builder.config("spark.ui.port","0").appName("Data Processing").master("yarn").getOrCreate
+
+reading files using spark.read.csv
+********************************************
+
+val orders = spark.read.csv("/public/retail_db/orders")
+
+val orders = spark.read.option("inferSchema","true").csv("/public/retail_db/orders")
+
+val orders = spark.
+read.
+schema(""" ORDER_ID INT,ORDER_DATE TIMESTAMP,ORDER_CUSTOMER_ID INT,ORDER_STATUS STRING """).
+option("inferSchema","true").csv("/public/retail_db/orders")
+
+
+val orders = spark.
+read.
+schema(""" ORDER_ID INT,ORDER_DATE TIMESTAMP,ORDER_CUSTOMER_ID INT,ORDER_STATUS STRING """).
+option("sep", ",").
+csv("/public/retail_db/orders")
+
+
+using spark.read.format
+*************************************
+
+val orders = spark.
+read.
+schema(""" ORDER_ID INT,ORDER_DATE TIMESTAMP,ORDER_CUSTOMER_ID INT,ORDER_STATUS STRING """).
+option("sep", ",").
+format("csv").
+load("/public/retail_db/orders")
+
+read JSON Files
+**********************
+
+val orders = spark.
+read.
+json("/public/retail_db_json/orders")
+
+printing the results without truncating 
+************************
+
+orders.show(20,truncate = false) or  orders.show(20,false) 
+
+
+example of some DF operations
+*****************************************8
+
+val employees = List(
+(1,"Scott","Tiger","1000.0","united states"),
+(2,"Henry","Ford","1250.0","India"),
+(3,"Nick","Junior","750.0","united KINGDOM"),
+(4,"Bill","Gomes","1500.0","AUSTRALIA"))
+
+
+val employeesDF = employees.toDF(
+"employee_id",
+"first_name",
+"last_name",
+"salary",
+"nationality")
+
+preview the data for first and last names
+************************************************
+
+employeesDF.select("first_name","last_name").show
+
+using $ or col function to print the columns
+**************************************************8888
+
+employeesDF.select($"first_name",$"last_name").show
+
+display all the fields except some field
+**************************************************
+
+employeesDF.drop("nationality").show
+
+
+use of concatenate and col function
+****************************************8
+
+employeesDF.select(
+col("employee_id"),
+concat(col("first_name") , lit(" ") , col("last_name")).alias("full_name"),
+col("salary"),
+col("nationality")
+).show
+
+
+using withColumn to add new field
+************************************8
+
+employeesDF.withColumn("full_name",
+concat(col("first_name") , lit(" ") , col("last_name")))
+.show
+
+using drop
+*******************8
+
+employeesDF.withColumn("full_name",
+concat(col("first_name") , lit(" ") , col("last_name"))).
+drop("first_name","last_name")
+.show
+
+
+
+using SQL Style
+*************
+
+employeesDF.selectExpr(
+"employee_id",
+"concat(first_name , ' ', last_name) AS full_name",
+"salary",
+"nationality" ).show
+
+
+********
+writing to file formats
+
+val orders = spark.
+read.
+schema(""" ORDER_ID INT,ORDER_DATE TIMESTAMP,ORDER_CUSTOMER_ID INT,ORDER_STATUS STRING """).
+csv("/public/retail_db/orders")
+
+
+orders.write.parquet("/orders")
+
+
+
+orders.write.mode("overwrite").parquet("/orders")
+
+orders.write.option("compression", "none").mode("overwrite").parquet("orders_file_parquet")
+
+
+
+spark.read.parquet("orders_file_parquet").show(10)
+
+
+USage of various functions:
+***********************************
+
+
+val l = List("x")
+
+val df = l.toDF("dummy")
+
+display current_date :
+*************************
+
+df.select(current_date.alias("current_date")).show
+
+
+
+val employees = List(
+(1,"Scott","Tiger","1000.0","united states","+ 123 456 7890","123 456 789"),
+(2,"Henry","Ford","1250.0","India", "+91 234 567 8901", "456 78 9123"),
+(3,"Nick","Junior","750.0","united KINGDOM","+44 111 111 1111", "222 33 4444"),
+(4,"Bill","Gomes","1500.0","AUSTRALIA","+61 987 654 3210", "789 12 6118"))
+
+
+val employeesDF = employees.toDF(
+"employee_id","first_name","last_name","salary","nationality","phone_no","SSN")
+
+
+convert string to cols
+*************************
+
+val s = "first_name"
+
+val c = col("first_name")
+
+Note: Col or $ function is applied only when  and function is used to do some transformations on the column.Otherwise no need to use the col or $.
+      Also, if col or $ cannot be used on only one column. it should be used for all the columns eventhough the function tobe used only on one column.
+	  
+	  
+usage of Group by
+*************************
+
+employeesDF.groupBy("nationality").count.show
+
+usage of upper
+**************
+
+employeesDF.groupBy(upper($"nationality").alias("nationality")).count.show
+
+usage of orderBy
+**************************
+
+employeesDF.orderBy("employee_id")
+
+usage of substring
+*********************
+
+employeesDF.select(
+"employee_id","phone_no","SSN").
+withColumn("phone_last4no", substring(col("phone_no"),-4,4).cast("int")).show
+
+
+filtering and other transformations
+******************************************
+
+val airlines_path = "/public/airlines_all/airlines-part/flightmonth=200801"
+
+import sys.process._
+
+"hdfs dfs -ls /public/airlines_all/airlines-part/flightmonth=200801" !
+
+
+
+val airlines = spark.read.parquet(airlines_path)
+
+
+sql Style
+***************
+
+airlines.filter("IsDepDelayed = 'YES'").show
+
+API Style
+******************
+
+using filter and LIKE
+***********************
+
+airlines.withColumn(
+"FlightDate", 
+concat(col("Year"),
+lpad(col("Month"),2,"0"),
+lpad(col("DayOfMonth"),2,"0"))).
+filter("FlightDate LIKE '2008010%'").count
+
+
+
+using filter and BETWEEN
+**************************
+
+airlines.withColumn(
+"FlightDate", 
+concat(col("Year"),
+lpad(col("Month"),2,"0"),
+lpad(col("DayOfMonth"),2,"0"))).
+filter("FlightDate BETWEEN '20080101' AND '20080109' AND IsDepDelayed = 'YES' ").count
+
+
+to display the name of the day completely
+*******************************************
+
+airlines.select(current_date,date_format(current_date,"EEEE")).show
+
+airlines.withColumn(
+"FlightDate", 
+concat(col("Year"),
+lpad(col("Month"),2,"0"),
+lpad(col("DayOfMonth"),2,"0"))).
+withColumn("DayofWeek" , date_format(to_date($"FlightDate", "yyyyMMdd"),"EEEE")).show
+
+groupBy and Count
+**************************
+
+airlines.groupBy(concat(
+col("Year"),
+lpad(col("Month"),2,"0"),
+lpad(col("DayOfMonth"),2,"0")).alias("FlightDate")).
+agg(count(lit(1))).alias("FlightCount")
+
+
+OrderBy desc
+************
+
+val flightCountDaily = airlines.groupBy(concat(
+col("Year"),
+lpad(col("Month"),2,"0"),
+lpad(col("DayOfMonth"),2,"0")).alias("FlightDate")).
+agg(count(lit(1))).alias("FlightCount")
+
+
+flightCountDaily.orderBy($"FlightCount" desc ).show
+
+
+count of departure delayed count
+****************************************
+
+airlines.agg(count(lit(1))).alias("FlightCount"),
+sum(agg(expr("CASE WHEN IsDepDelayed = 'YES' THEN 1 else 0 END"))).alias("DepDelayedCount")
+.show
+
+
+--------------------------------
+
+ val  data =spark.read.option("header","true").csv("/public/crime/csv/crime_data.csv")
+data.printSchema
+ data.select("Primary Type","Date").show
+ val crimeaTab=data.select("Primary Type","Date").registerTempTable("crime_data")
+  spark.sql("select * from crime_data").show(5)
+spark.sql("select cast(concat(substring(Date,7,4),substring(Date,0,2)) as int) Date,`Primary Type`,count(2) count from crime_data group by `Primary Type`,Date order by Date,count desc ")
+val sqlout=spark.sql("select cast(concat(substring(Date,7,4),substring(Date,0,2)) as int) Date,`Primary Type`,count(2) count from crime_data group by `Primary Type`,Date order by Date,count desc ")
+ sqlout.coalesce(1).write.json("crime_data_json")
+
+
+select concat(substring(Date,7,4),substring(Date,0,2)) Date,`Primary Type`,count(2) count from crime_data group by `Primary Type`,Date order by Date desc
+
+
+
+
+************
+Top 3 count for Crime Type RESIDENCE
+**************
+
+
+val crimedata = sc.textFile("/public/crime/csv")
+val header = crimedata.first
+val crimedatawithoutheader = crimedata.filter(rec => rec != header)
+val crimecountforResidence = sc.parallelize(crimedatawithoutheader.
+filter(rec => rec.split(",(?=(?:[^\"]*+\"[^\"]*+\")*[^\"]*$)",-1)(7) == "RESIDENCE").
+map(rec => (rec.split(",(?=(?:[^\"]*+\"[^\"]*+\")*[^\"]*$)",-1)(5),1)).
+reduceByKey((total,value) => total + value).
+map(rec => (rec._2,rec._1)).
+sortByKey(false).
+take(3))
+
+crimecountforResidence.map(rec => (rec._2,rec._1)).toDF("crime_type","crime_count").write.json("crime_type_RES")
+
+
+
+
+
+
+
+
+
+
+
+ 
+
+
+	 
+
+	 
+	
+	
+
+
+
+
+
+
+
+
+
+     	 
+	 
+	 
+	 
+	 
+
+
+	 

@@ -1,0 +1,197 @@
+*********
+Problem -1
+
+
+val nysestocks2010 = sc.textFile("NYSE_2010.txt")
+
+val stocktricker = nysestocks2010.map(stc => (stc.split(",")(0),(stc.split(",")(1),stc.split(",")(2),stc.split(",")(3),
+                    stc.split(",")(4),stc.split(",")(5))))
+					
+
+val distinctstockticker = stocktricker.map(stcticker => stcticker._1).distinct
+
+
+val stocktrickerasc = distinctstockticker.sortBy(stc => stc)
+
+
+***********************
+Problem -2  save the final data in json where stocktricker and date are in ascending order
+
+val nysestocks2010 = sc.textFile("NYSE_2010.txt")
+
+val stockkeyvalue = nysestocks2010.map(rec => ((rec.split(",")(0),rec.split(",")(1).toInt),rec))
+
+val stockasc = stockkeyvalue.sortBy(o => o).take(15).foreach(println)
+
+val stockfinal = stockasc.map(rec => rec._2)
+
+val stcpartitioning = stockfinal.repartition(8)
+
+st_final = stcpartitioning.toDF
+
+st_final.write.json("stckdata_2010_json")
+
+*****************************************************
+
+
+
+val tuple1 = (1,"2013-07-25:00:00:00.0",11599,"COMPLETE")
+
+val statuscol = (tuple1._1,tuple1._2,tuple1._3,tuple._4.toLower)
+
+
+
+sc.parallelize(Seq("1,2013-07-25:00:00:00.0,11599,COMPLETE")).map( x => {var d = x.split(","); (d(3))}).toDF("order_status").select (lower(col("order_status"))).show
+
+
+*************8
+Problem 3
+
+val stcklist = sc.textFile("NYSE_2010.txt")
+val stcnames = sc.textFile("/public/nyse_all/nyse_stocks")
+
+
+val stcklistkeymap = stcklist.map( stc => {
+		val stock = stc.split(",")
+		(stock(0),(stock(1).toInt,stock(2).toFloat,stock(3).toFloat,stock(4).toFloat,stock(5).toFloat,stock(6).toInt)) \
+		})
+	 
+val stcnamesmap = stcnames.map(stc => {
+      val stcname = stc.split("\\|")
+      (stcname(0),stcname(1))
+      })
+	  
+val stockjoin =  stcklistkeymap.join(stcnamesmap)
+
+
+stockjoin.filter(stcname => stcname._2._2.contains("Natural Gas Services Group, Inc.")).take(15).foreach(println)
+
+
+******************8
+problem--4
+
+val stcklist = sc.textFile("NYSE_2010.txt")
+
+val stckkey = stcklist.map(stc => ((stc.split(",")(0),stc.split(",")(1).toInt,stc.split(",")(6).toInt),stc))
+
+
+val stctickerasc = stckkey.sortByKey()
+
+
+val stkunitsindescperstcdate = stctickerasc.map(stc => ((stc._1._1,stc._1._2,-stc._1._3),stc))
+
+val  sortunitsdesc = stkunitsindescperstcdate.sortBy(units => (units._1._3,-units._1._3)).take(15).foreach(println)
+
+val finalstockdata = sortunitsdesc.map(rec => (rec._2._2))
+
+
+create table stock_data ( stockticker string,date_trade int,open_price float,high_price float,
+low_price float,closed_price float,units int) 
+ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe';
+--ROW FORMAT SERDE 'org.apache.hadoop.hive.contrib.serde2.JsonSerde' ;
+
+				  
+						  
+ADD JAR /path-to/hive-json-serde.jar;
+                                  
+								
+								
+load data inpath '/user/sravankumar/stock_json/' into table stock_data;
+
+
+*******
+Problem Scenario 5 : You have given a file named spark6/user.csv.
+Data is given below:
+user.csv
+id,topic,hits
+
+Rahul,scala,120 -
+
+Nikita,spark,80 -
+
+Mithun,spark,1 -
+myself,cca175,180
+Now write a Spark code in scala which will remove the header part and create RDD of values as below, for all rows. And also if id is myself" than filter out row.
+Map(id -> om, topic -> scala, hits -> 120)
+val test1 = sc.textFile("test.csv")
+
+val header = test1.first
+
+val data = test1.filter(data => data != header)
+
+
+val removemyself = data.filter(rec => rec.split(",")(0) != "myself") 
+
+
+*****************************************
+Problem Scenario 6 : 
+
+val emp_json = sqlContext.read.json("employee.json")
+
+val emptemtable = emp_json.registerTempTable("emp_temp")
+
+val readdata = sqlContext.sql("select * from emp_temp").show
+
+readdata.writ
+
+******
+creating and reading data from df in spark-2
+
+val temp1 = join_df.createOrReplaceTempView("Products_info")
+spark.sql("select * from Products_info where YEAR_MANF = '2010'").show()
+
+
+***********************************
+
+
+
+val raw=sc.textFile("/public/crime/csv/")
+val crimeHead=raw.first
+val headless= raw.filter(rec  => rec != crimeHead)
+
+val processRdd= sc.parallelize(headless.filter(rec => rec.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)", -1)(7)=="RESIDENCE").
+map(rec=> (rec.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)", -1)(5),1)).
+reduceByKey((total,count) => total+count).
+map(rec => (rec._2,rec._1)).
+sortByKey(false).
+map(rec => (rec._2,rec._1)).
+take(3)).toDF("Crime Type","Number of I=ncidents").write.json("RESIDENCE_AREA_CRIMINAL_TYPE_DATA")
+
++-------------+-------------------+
+|   Crime Type|Number of Incidents|
++-------------+-------------------+
+|      BATTERY|             244394|
+|OTHER OFFENSE|             184667|
+|        THEFT|             142273|
++-------------+-------------------+
+
+val crimeDF = sc.textFile("/public/crime/csv/").
+map(rec => (rec.split(",")(5),rec.split(",")(7))).
+toDF("crime_type","crime_description")
+
+val crimetable = crimeDF.registerTempTable("crime_table")
+
+spark.sql("select crime_type,count(1) crime_count " +
+"from crime_table " +
+"where crime_description = 'RESIDENCE' " +
+"group by crime_type " +
+"order by crime_count desc " +
+"limit 3").show
+
+
++-------------+-----------+
+|   crime_type|crime_count|
++-------------+-----------+
+|      BATTERY|     244394|
+|OTHER OFFENSE|     184667|
+|        THEFT|     142273|
++-------------+-----------+
+
+
++-------------+-------------------+
+|   Crime Type|Number of Incidents|
++-------------+-------------------+
+|      BATTERY|             244394|
+|OTHER OFFENSE|             184667|
+|        THEFT|             142273|
++-------------+-------------------+

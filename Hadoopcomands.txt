@@ -1,0 +1,57 @@
+mysql -u retail_dba -h nn01.itversity.com -p
+
+telnet ms.itversity.com 3306
+or
+nc ms.itversity.com 3306
+
+****
+sqoop eval:
+
+sqoop eval \
+--connect jdbc:mysql://ms.itversity.com:3306/retail_dba\
+--username retail_dba \
+--password itversity \
+--query "SHOW DATABASES"
+
+
+sqoop import --connect jdbc:mysql://nn01.itversity.com:3306/retail_export --username retail_dba --password itversity --table Products --m 1 --target-dir /user/sravankumar/product
+
+
+****
+Read csvfile from hdfs
+****
+
+
+val file1 = sc.textFile("hdfs:///user/sravankumar/products_data.csv")
+val file_df = file1.toDF()
+file_df.show()
+
+***
+load the csv file into hive
+***
+
+file1.write.saveAsTable("sravan.products_data_stg")
+
+
+****
+through spark Context
+**
+
+scala> val sqlcontext = spark.sqlContext
+
+val spark = SparkSession.builder().master("local[1]").appName("SparkByExamples.com").getOrCreate();
+
+
+val rddFromFile = spark.sparkContext.textFile("hdfs:///user/sravankumar/products_data")
+
+rdd.collect().foreach(f=>{println("Col1:"+f(0)+",Col2:"+f(1)+",Col3:"+f(2)+",Col4:"+f(3)")})
+
+***
+CSV to DF
+***
+
+val file1 = spark.read.option("header", true).option("delimiter", ",").csv("hdfs:///user/sravankumar/products_data.csv")
+val file2 = spark.read.option("header", true).option("delimiter", ",").csv("hdfs:///user/sravankumar/sales_info.csv")
+val join_df = file1.join(file2,"Product_id")
+
+
