@@ -55,3 +55,7 @@ val file2 = spark.read.option("header", true).option("delimiter", ",").csv("hdfs
 val join_df = file1.join(file2,"Product_id")
 
 
+
+---spark-------
+
+
